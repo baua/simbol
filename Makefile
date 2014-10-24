@@ -128,3 +128,31 @@ travis:
 	@while true; do clear; travis branches; sleep 10; done
 #. }=-
 #. }=-
+
+VERSION := $(shell awk '$$2~/^VERSION$$/{print$$3}' share/unit/docker/Dockerfile)
+
+mkdocker:
+	docker build -t="nima/simbol:${VERSION}" share/unit/docker
+	docker run -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/bin -tit --entrypoint="pwd" "nima/simbol:${VERSION}"
+	docker commit $$(docker ps -ql) nima/simbol:${VERSION}
+	docker run -e PWD=/opt/schtunt/simbol                                                     -tit --entrypoint="pwd" "nima/simbol:${VERSION}"
+	docker commit $$(docker ps -ql) nima/simbol:${VERSION}
+	docker run -tit --entrypoint="make" "nima/simbol:${VERSION}" install
+	docker commit $$(docker ps -ql) nima/simbol:${VERSION}
+	docker run -tit --entrypoint="simbol" "nima/simbol:${VERSION}" py install
+	docker commit $$(docker ps -ql) nima/simbol:${VERSION}
+	docker run -tit --entrypoint="simbol" "nima/simbol:${VERSION}" rb install
+	docker commit $$(docker ps -ql) nima/simbol:${VERSION}
+	docker run -tit --entrypoint="simbol" "nima/simbol:${VERSION}" pl install
+	docker commit $$(docker ps -ql) nima/simbol:${VERSION}
+	docker images
+
+rmdocker:
+	docker ps -aq | xargs docker rm
+	docker rmi nima/simbol:${VERSION}
+
+docker:
+	docker run\
+	    -v /srv/sirca/simbol/:/root/.simbol/profiles.d/SIRCA\
+	    -v $(HOME)/.simbolrc:/root/.simbolrc\
+	    -tit nima/simbol:${VERSION}
