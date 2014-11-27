@@ -84,3 +84,6 @@ USER_MON_CMDGRPLOCAL=(
     [dpkage]="expr ( ${NOW} - %s ) / 3600 / 24"
 )
 #. }=-
+#. pd -={
+declare -g -r USER_PAGERDUTY_HOST=simbol.pagerduty.com
+#. }=-
