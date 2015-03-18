@@ -1,13 +1,11 @@
 # vim: tw=0:ts=4:sw=4:et:ft=bash
 
 #. Site Engine -={
-export SIMBOL_VERSION=v0.30
+export SIMBOL_VERSION=v0.30.1
 #. 1.1  Date/Time and Basics -={
 export NOW=$(date --utc +%s)
 #. FIXME: Mac OS X needs this instead:
 #. FIXME: export NOW=$(date -u +%s)
-
-export PS4="\${BASH_SOURCE//\${SIMBOL_USER}/}::\${LINENO} -> "
 #. }=-
 #. 1.2  Paths -={
 : ${SIMBOL_PROFILE?}
@@ -76,8 +74,18 @@ export SHUNIT2=${SIMBOL_USER_LIBEXEC}/shunit2
 export SHFLAGS=${SIMBOL_USER_LIBSH}/shflags
 source ${SHFLAGS?}
 #. }=-
-#. 1.3  User/Profile Configuration -={
-
+#. 1.3  Core Configuration -={
+unset  CDPATH
+export SIMBOL_DEADMAN=${SIMBOL_USER_CACHE}/deadman
+export SIMBOL_IN_COLOR=1
+export SIMBOL_DATE_FORMAT="%x-%X"
+source ${SIMBOL_CORE_MOD?}/cpf.sh
+PS4="+${COLORS[r]}\${BASH_SOURCE}${COLORS[N]}"
+PS4+=":${COLORS[g]}\${LINENO}${COLORS[N]}"
+PS4+="[${COLORS[m]}\${FUNCNAME}()${COLORS[N]}]"
+PS4+="${COLORS[y]} >>> ${COLORS[N]}"
+#. }=-
+#. 1.4  User/Profile Configuration -={
 declare -g -A CORE_MODULES=(
     [tutorial]=0   [help]=1
     [unit]=1       [util]=1      [hgd]=1       [git]=1
@@ -104,30 +112,23 @@ test ! -f ~/.simbolrc || source ~/.simbolrc
 : ${USER_USERNAME?}
 : ${USER_EMAIL?}
 
-#. GLOBAL_OPTS 1/4:
+#. GLOBAL_OPTS 1/4 -={
 declare -i g_HELP=0
 declare -i g_VERBOSE=0
 declare -i g_DEBUG=0
+declare -i g_CACHED=1
 declare -i g_LDAPHOST=-1
-declare -i g_CACHED=0
 declare g_FORMAT=ansi
-declare g_DUMP
-
 declare g_TLDID=${USER_TLDID_DEFAULT:-_}
+#. }=-
 
+declare g_DUMP
 declare -g g_SSH_OPT
 g_SSH_OPTS="-q"
 g_SSH_CONF=${SIMBOL_USER_ETC?}/${SIMBOL_USER_SSH_CONF:-ssh.conf}
 if [ -e "${g_SSH_CONF}" ]; then
     g_SSH_OPTS+=" -F ${g_SSH_CONF}"
 fi
-#. }=-
-#. 1.4  Core Configuration -={
-unset  CDPATH
-export SIMBOL_DEADMAN=${SIMBOL_USER_CACHE}/deadman
-export SIMBOL_IN_COLOR=1
-export SIMBOL_DATE_FORMAT="%x-%X"
-source ${SIMBOL_CORE_MOD?}/cpf.sh
 #. }=-
 #. 1.7  Error Code Constants -={
 true
@@ -397,6 +398,7 @@ function core:requires() {
             local plid=pl
             core:softimport xplm
             if [ $? -eq ${CODE_IMPORT_GOOOD?} ]; then
+                #cpf "Installing missing required %{@lang:perl} module %{@pkg:${required}}..."
                 for required in ${@:2}; do
                     if ! :xplm:requires ${plid} ${required}; then
                         core:log NOTICE "${caller} missing required perl module ${required}"
@@ -414,6 +416,7 @@ function core:requires() {
             local plid=py
             core:softimport xplm
             if [ $? -eq ${CODE_IMPORT_GOOOD?} ]; then
+                #cpf "Installing missing required %{@lang:python} module %{@pkg:${required}}..."
                 for required in ${@:2}; do
                     if ! :xplm:requires ${plid} ${required}; then
                         core:log NOTICE "${caller} installing required python module ${required}"
@@ -431,6 +434,7 @@ function core:requires() {
             local plid=rb
             core:softimport xplm
             if [ $? -eq ${CODE_IMPORT_GOOOD?} ]; then
+                #cpf "Installing missing required %{@lang:ruby} module %{@pkg:${required}}..."
                 for required in ${@:2}; do
                     if ! :xplm:requires ${plid} ${required}; then
                         core:log NOTICE "${caller} installing required ruby module ${required}"
@@ -613,8 +617,8 @@ function :core:cache() {
             output)
                 :> ${cachefile}
                 chmod 600 ${cachefile}
-                while read line; do
-                    echo "$line" >> ${cachefile}
+                while IFS= read line; do
+                    echo "${line}" >> ${cachefile}
                 done
 
                 if [ -s ${cachefile} ]; then
@@ -640,7 +644,6 @@ function :core:cached() {
     #. TTL of 0 means cache forever
     #. TTL > 0 means to cache for TTL seconds
     local -i e=${CODE_FAILURE}
-
     if [ $# -eq 1 ]; then
         if [ ${g_CACHED} -eq 1 ]; then
             local modfn=${FUNCNAME[1]}
@@ -748,14 +751,15 @@ function ::core:flags.eval() {
     done
     set -- "${argv[@]}"
 
-    #. GLOBAL_OPTS 2/4: Our generic and global options
+    #. GLOBAL_OPTS 2/4: Our generic and global options -={
     DEFINE_boolean help     false            "<help>"                   H
     DEFINE_boolean verbose  false            "<verbose>"                V
     DEFINE_boolean debug    false            "<debug>"                  D
-    DEFINE_boolean cached   false            "<use-cache>"              C
-    DEFINE_string  format   "${g_FORMAT}"    "ansi|text|csv|html|email" F
+    DEFINE_boolean cached   true             "<use-cache>"              C
     DEFINE_integer ldaphost "${g_LDAPHOST}"  "<ldap-host-index>"        L
+    DEFINE_string  format   "${g_FORMAT}"    "ansi|text|csv|html|email" F
     DEFINE_string  tldid    "${g_TLDID}"     "<top-level-domain-id>"    T
+    #. }=-
 
     #. Out module/function-specific options
     local -a extra
@@ -780,7 +784,7 @@ declare -g fn=${fn:-}
     #. Process it all
     FLAGS "${@}" >/dev/null 2>&1
     if [ $? -eq 0 ]; then
-        #. GLOBAL_OPTS 3/4:
+        #. GLOBAL_OPTS 3/4 -={
         FLAGS_HELP="simbol ${module} ${fn} [<flags>]"
         #. Booleans get inverted:
         let g_HELP=~${FLAGS_help?}+2; unset FLAGS_help
@@ -788,9 +792,10 @@ declare -g fn=${fn:-}
         let g_DEBUG=~${FLAGS_debug?}+2; unset FLAGS_debug
         let g_CACHED=~${FLAGS_cached?}+2; unset FLAGS_cached
         #. Everything else is straight-forward:
-        g_FORMAT=${FLAGS_format?}; unset FLAGS_format
         g_LDAPHOST=${FLAGS_ldaphost?}; unset FLAGS_ldaphost
+        g_FORMAT=${FLAGS_format?}; unset FLAGS_format
         g_TLDID=${FLAGS_tldid?}; unset FLAGS_tldid
+        #. }=-
 
         if [[ ${#USER_IFACE[${g_TLDID}]} -eq 0 ]]; then
             core:log ERR "USER_IFACE[${g_TLDID}] has not been defined!"
@@ -798,14 +803,15 @@ declare -g fn=${fn:-}
 
         if [[ ${#g_TLDID} -eq 0 || ${g_TLDID} == '_' || ${#USER_IFACE[${g_TLDID}]} -gt 0 ]]; then
             cat <<!
-#. GLOBAL_OPTS 4/4:
+#. GLOBAL_OPTS 4/4 -={
 declare g_HELP=${g_HELP?}
 declare g_VERBOSE=${g_VERBOSE?}
 declare g_DEBUG=${g_DEBUG?}
-declare g_FORMAT=${g_FORMAT?}
-declare g_LDAPHOST=${g_LDAPHOST?}
-declare g_TLDID=${g_TLDID?}
 declare g_CACHED=${g_CACHED?}
+declare g_LDAPHOST=${g_LDAPHOST?}
+declare g_FORMAT=${g_FORMAT?}
+declare g_TLDID=${g_TLDID?}
+#. }=-
 set -- ${FLAGS_ARGV?}
 !
             e=${CODE_SUCCESS}
@@ -955,7 +961,9 @@ function :core:functions() {
 
     return $e
 }
+function :core:usage:cached() { echo 0; }
 function :core:usage() {
+  ${CACHE_OUT?}; {
     local module=$1
     local fn=$2
     local mode=${3---short}
@@ -972,10 +980,12 @@ function :core:usage() {
         printf "\n\n"
     fi
 
+    local usage_prefix="%{wh:Usage} for %{@user:${USER_USERNAME}}@%{g:${SIMBOL_PROFILE}}"
     if [ $# -eq 0 ]; then
         #. Usage for simbol
-        cpf "%{wh:usage}%{bl:4}%{@user:${USER_USERNAME}}%{bl:@}%{g:${SIMBOL_PROFILE}}\n"
+        cpf "${usage_prefix}\n"
         for profile in USER_MODULES CORE_MODULES; do
+            cpf "  %{g:${profile}}...\n"
             eval $(::core:dereference.eval profile) #. Will create ${profile} array
             for module in ${!profile[@]}; do (
                 local docstring=$(core:docstring ${module})
@@ -1004,14 +1014,14 @@ function :core:usage() {
                 else
                     cpf "; %{@warn:This module has not been set-up for use}\n"
                 fi
-            ); done
+            ); done | sort
         done
     elif [ $# -eq 1 ]; then
         core:softimport ${module}
         local -i ie=$?
         if [ $ie -eq ${CODE_IMPORT_GOOOD?} ]; then
             if [ ${g_ONCE_WHOAMI:-0} -eq 0 ]; then
-                cpf "%{wh:usage}%{bl:4}%{@user:${USER_USERNAME}}%{bl:@}%{g:${SIMBOL_PROFILE}} %{!module:${module}}\n"
+                cpf "${usage_prefix} %{!module:${module}}\n"
                 g_ONCE_WHOAMI=1
             fi
 
@@ -1041,7 +1051,7 @@ function :core:usage() {
             echo
         fi
     elif [ $# -ge 2 ]; then
-        cpf "%{wh:usage}%{bl:4}%{@user:${USER_USERNAME}}%{bl:@}%{g:${SIMBOL_PROFILE}} %{!function:${module}:${fn}}\n"
+        cpf "${usage_prefix} %{!function:${module}:${fn}}\n"
         cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} "
 
         local usage_s=${module}:${fn}:usage
@@ -1074,6 +1084,7 @@ function :core:usage() {
             ;;
         esac
     fi
+  } | ${CACHE_IN?}; ${CACHE_EXIT?}
 }
 
 function :core:complete() {
@@ -1086,13 +1097,13 @@ function :core:complete() {
             echo ${fn}
         else
             for afn in $(declare -F|awk -F'[ :]' '$3~/^'${module}'$/{print$4}'|sort -n); do
-                local AC_${module}_${afn//./_}=1
+                local AC_${module//./_}_${afn}=1
             done
-            local -a completed=( $(eval echo "\${!AC_${module}_${fn//./_}*}") )
-            if echo ${completed[@]} | grep -qE "\<AC_${module}_${fn//./_}\>"; then
+            local -a completed=( $(eval echo "\${!AC_${module//./_}_${fn}*}") )
+            if echo ${completed[@]} | grep -qE "\<AC_${module//./_}_${fn}\>"; then
                 echo ${fn}
             else
-                echo ${completed[@]//AC_${module}_/}
+                echo ${completed[@]//AC_${module//./_}_/}
             fi
         fi
     fi
@@ -1154,8 +1165,8 @@ function core:wrapper() {
                     elif [ ${supported_formats[${g_FORMAT}]} -gt 0 ]; then
                         [ ${g_DEBUG} -eq 0 ] || set -x
                         :core:execute ${module} ${completed} "${@}"
-                        [ ${g_DEBUG} -eq 0 ] || set +x
                         e=$?
+                        [ ${g_DEBUG} -eq 0 ] || set +x
                     else
                         theme ERR_USAGE "This function does not support that format."
                         e=${CORE_FAILURE}
