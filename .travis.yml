@@ -17,6 +17,7 @@ env:
     - USER_USERNAME="travis"
     - PATH="${PATH}:${HOME}/bin"
   matrix:
+    - CONTEXT=execute MODULE=core
     # CONTEXT=execute MODULE=tutorial #. nima/simbol#15  util
     - CONTEXT=execute MODULE=util     #. nima/simbol#4
     - CONTEXT=execute MODULE=dns      #. nima/simbol#10  util
@@ -35,6 +36,7 @@ matrix:
   allow_failures:
     - env: CONTEXT=execute MODULE=xplm
     - env: CONTEXT=execute MODULE=tunnel
+    - env: CONTEXT=execute MODULE=vault
 
 before_install:
   - sudo apt-get update -qq

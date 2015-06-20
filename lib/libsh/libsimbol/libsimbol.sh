@@ -9,7 +9,7 @@ export NOW=$(date --utc +%s)
 #. }=-
 #. 1.2  Paths -={
 : ${SIMBOL_PROFILE?}
-export SIMBOL_SIMBOL_BASENAME=$(basename $0)
+export SIMBOL_SIMBOL_BASENAME=$(basename -- $0)
 
 export SIMBOL_SCM=$(readlink ~/.simbol/.scm)
 
@@ -92,8 +92,7 @@ declare -g -A CORE_MODULES=(
     [dns]=1        [net]=1       [tunnel]=1    [remote]=1
     [xplm]=1       [rb]=1        [py]=1        [pl]=1
     [gpg]=1        [vault]=1
-    [ng]=0         [ldap]=0      [mongo]=0
-    [softlayer]=0
+    [ng]=0         [ldap]=0      [mongo]=0     [softlayer]=0
 )
 
 declare -gA USER_MODULES=( )
@@ -234,28 +233,29 @@ function core:softimport() {
     local -i e=9
 
     if [ $# -eq 1 ]; then
-        local module=$1
-        local modulepath=${1//./\/}
+        local module="$1"
+        local modulepath="${1//./\/}.sh"
+        local ouch="${SIMBOL_USER_TMP}/softimport.${module}.$$.ouch"
         if [ -z "${g_SIMBOL_IMPORTED_EXIT[${module}]}" ]; then
             if [ ${USER_MODULES[${module}]-9} -eq 1 ]; then
-                if [ -f ${SIMBOL_USER_MOD}/${modulepath}.sh ]; then
-                    if source ${SIMBOL_USER_MOD}/${modulepath}.sh >/tmp/simbol.${module}.ouch 2>&1; then
+                if [ -f ${SIMBOL_USER_MOD}/${modulepath} ]; then
+                    if source ${SIMBOL_USER_MOD}/${modulepath} >${ouch} 2>&1; then
                         e=${CODE_IMPORT_GOOOD?}
                     else
                         e=${CODE_IMPORT_ERROR?}
                     fi
-                    rm -f /tmp/simbol.${module}.ouch
+                    rm -f ${ouch}
                 else
                     e=${CODE_IMPORT_UNDEF?}
                 fi
             elif [ ${CORE_MODULES[${module}]-9} -eq 1 ]; then
-                if [ -f ${SIMBOL_CORE_MOD}/${modulepath}.sh ]; then
-                    if source ${SIMBOL_CORE_MOD}/${modulepath}.sh >/tmp/simbol.${module}.ouch 2>&1; then
+                if [ -f ${SIMBOL_CORE_MOD}/${modulepath} ]; then
+                    if source ${SIMBOL_CORE_MOD}/${modulepath} >${ouch} 2>&1; then
                         e=${CODE_IMPORT_GOOOD?}
                     else
                         e=${CODE_IMPORT_ERROR?}
                     fi
-                    rm -f /tmp/simbol.${module}.ouch
+                    rm -f ${ouch}
                 else
                     e=${CODE_IMPORT_UNDEF?}
                 fi
@@ -302,28 +302,76 @@ function core:imported() {
     return ${e}
 }
 
+function core:modules() {
+    local -i e=${CODE_FAILURE}
+
+    if [ $# -eq 1 ]; then
+        local module=$1
+        local -i enabled=0
+        if [ ${USER_MODULES[${module}]-9} -eq 1 ]; then
+            enabled=2
+        elif [ ${CORE_MODULES[${module}]-9} -eq 1 ]; then
+            enabled=1
+        fi
+
+        if [ ${enabled} -eq 2 -a -f ${SIMBOL_USER_MOD}/${module//\./\/}.sh ]; then
+            echo ${module}
+            e=${CODE_SUCCESS?}
+        elif [ ${enabled} -eq 1 -a -f ${SIMBOL_CORE_MOD}/${module//\./\/}.sh ]; then
+            echo ${module}
+            e=${CODE_SUCCESS?}
+        fi
+
+        if [ ${module//./} == ${module} ]; then
+            #. It's a module with submodules
+            if [ ${enabled} -eq 2 -a -d ${SIMBOL_USER_MOD}/${module} ]; then
+                for submodule in $(find ${SIMBOL_USER_MOD}/${module} -type f -name '*.sh' -printf "%f\n" | cut -d. -f1); do
+                    submodule=${module}.${submodule}
+                    if [ ${USER_MODULES[${submodule}]-9} -eq 1 ]; then
+                        echo ${submodule}
+                    elif [ ${CORE_MODULES[${submodule}]-9} -eq 1 ]; then
+                        echo ${submodule}
+                    fi
+                done
+                e=${CODE_SUCCESS?}
+            elif [ ${enabled} -eq 1 -a -d ${SIMBOL_CORE_MOD}/${module} ]; then
+                for submodule in $(find ${SIMBOL_CORE_MOD}/${module} -type f -name '*.sh' -printf "%f\n" | cut -d. -f1); do
+                    submodule=${module}.${submodule}
+                    if [ ${USER_MODULES[${submodule}]-9} -eq 1 ]; then
+                        echo ${submodule}
+                    elif [ ${CORE_MODULES[${submodule}]-9} -eq 1 ]; then
+                        echo ${submodule}
+                    fi
+                done
+                e=${CODE_SUCCESS?}
+            fi
+        fi
+    fi
+
+    return $e
+}
+
 function core:docstring() {
     local -i e=${CODE_FAILURE}
 
     if [ $# -eq 1 ]; then
         local module=$1
-        local modulepath=${1//./\/}
+        local modulepath=${1//./\/}.sh
 
         e=2 #. No such module
         if [ ${USER_MODULES[${module}]-9} -eq 1 ]; then
-            if [ -f ${SIMBOL_USER_MOD}/${modulepath}.sh ]; then
-                sed -ne '/^:<<\['${FUNCNAME}'\]/,/\['${FUNCNAME}'\]/{n;p;q}' ${SIMBOL_USER_MOD}/${modulepath}.sh
+            if [ -f ${SIMBOL_USER_MOD}/${modulepath} ]; then
+                sed -ne '/^:<<\['${FUNCNAME}'\]/,/\['${FUNCNAME}'\]/{n;p;q}' ${SIMBOL_USER_MOD}/${modulepath}
                 e=$?
             fi
         elif [ ${CORE_MODULES[${module}]-9} -eq 1 ]; then
-            if [ -f ${SIMBOL_CORE_MOD}/${modulepath}.sh ]; then
-                sed -ne '/^:<<\['${FUNCNAME}'\]/,/\['${FUNCNAME}'\]/{n;p;q}' ${SIMBOL_CORE_MOD}/${modulepath}.sh
+            if [ -f ${SIMBOL_CORE_MOD}/${modulepath} ]; then
+                sed -ne '/^:<<\['${FUNCNAME}'\]/,/\['${FUNCNAME}'\]/{n;p;q}' ${SIMBOL_CORE_MOD}/${modulepath}
                 e=$?
             fi
         elif [ ${CORE_MODULES[${module}]-9} -eq 0 -o ${USER_MODULES[${module}]-9} -eq 0 ]; then
             e=${CODE_FAILURE} #. Disabled
         fi
-        g_SIMBOL_IMPORTED_EXIT[${module}]=$e
     fi
 
     return $e
@@ -484,24 +532,47 @@ mkdir -p ${SIMBOL_USER_CACHE?}
 chmod 3770 ${SIMBOL_USER_CACHE?} 2>/dev/null
 
 #. Keep track if cache was used globally
-declare g_CACHE_USED=${SIMBOL_USER_CACHE}/.cache_used
-rm -f ${g_CACHE_USED}
+declare g_CACHE_USED=${SIMBOL_USER_CACHE?}/.cache_used
+rm -f ${g_CACHE_USED?}
 
-CACHE_OUT='eval :core:cached "${*}" && return ${CODE_SUCCESS}'
-CACHE_IN='eval :core:cache "${*}"'
-CACHE_EXIT='eval return ${PIPESTATUS[0]}'
+function core:return() { return $1; }
+
+function g_CACHE_OUT() {
+    : ${l_CACHE_SIG:="${FUNCNAME[1]}"}
+    g_CACHE_FILE="$(:core:cachefile "${l_CACHE_SIG}" "$*")"
+    :core:cached "${g_CACHE_FILE}"
+    return $?
+}
+
+function g_CACHE_IN() {
+    local -i e=$?
+
+    if [ ${e:-${CODE_SUCCESS?}} -eq ${CODE_SUCCESS?} ]; then
+        cat ${g_CACHE_FILE?}
+    else
+        rm -f ${g_CACHE_FILE?}
+    fi
+    #:core:cache "${g_CACHE_FILE}"
+    return $e
+}
 :<<! USAGE:
 Any function (private or internal only, do not try and cache-enable public
 functions!) can be cache-enabled simply by insertin two lines; one right at
 the start of the function, and one right at the end:
 
 function <module>:<function>() {
+  #. Optional...
+  #local l_CACHE_SIG="optional-custom-sinature-hash:template:funk/$3";
+  #local -i l_CACHE_TTL=0
+
   #. vvv 1. Use cache and return or continue
-  ${CACHE_OUT}; {
+  g_CACHE_OUT "$*" || {
+    local -i e=${CODE_DEFAULT?}
 
     ...
 
-  } | ${CACHE_IN}; ${CACHE_EXIT}
+    e=...
+  } > ${g_CACHE_FILE}; g_CACHE_IN; return $?
   #. ^^^ 2. Update cache if previous did not return
 }
 function :<module>:<function>() { #. Same as above...; }
@@ -543,96 +614,87 @@ function :core:age() {
     return ${e}
 }
 
-function :core:cache:file() {
-    local -i e=${CODE_FAILURE}
+function core:global() {
+    local -i e=${CODE_FAILURE?}
+    local contaxt
+    local key
+    local value
+    local globalstore
+    case $# in
+        1)
+            IFS='.' read context key <<< "${1}"
+            globalstore="$(:core:cachefile "${context}" "${key}")"
+            e=$?
+            if [ $e -eq ${CODE_SUCCESS?} ]; then
+                cat ${globalstore}
+            fi
+        ;;
+        2)
+            IFS='.' read context key <<< "${1}"
+            value="${2}"
+            globalstore="$(:core:cachefile "${context}" "${key}")"
+            echo "${value}" > ${globalstore}
+            e=$?
+        ;;
+        *)
+            core:raise EXCEPTION_BAD_FN_CALL
+        ;;
+    esac
+    return $e
+}
 
-    local modfn="$1"
-    local cachefile
-    if [ "$(type -t ${modfn}:cachefile)" == "function" ]; then
-        #. File-Cached...
-        shift 1
-        cachefile=$(${modfn}:cachefile "${@}")
-    else
-        #. Output-Cached...
+function :core:cachefile() {
+    #. Prints the file path
+    #. Return code encodes if the files exists (0) or not (1)
+
+    local effective_format=${g_FORMAT}
+
+    local cachefile=${SIMBOL_USER_CACHE}
+
+    if [ $# -eq 2 ]; then
+        #. Automaticly named cachefile...
+        local modfn="$1"
         local effective_format=${g_FORMAT}
         if [[ $1 =~ ^: ]] && [ ${g_FORMAT} == "ansi" ]; then
             effective_format=text
         fi
 
-        cachefile=${SIMBOL_USER_CACHE}/${1//:/=}
+        cachefile+=/${1//:/=}
         cachefile+=+${g_TLDID}
         cachefile+=+${g_VERBOSE}
-        cachefile+=+$(echo -ne "${2}"|md5sum|awk '{print$1}')
-        cachefile+=.${effective_format}
+        cachefile+=+$(md5sum <<< "$2"|cut -b -32);
+    elif [ $# -eq 1 ]; then
+        #. Hand-picked signature from caller...
+
+        cachefile+=/
+        cachefile+=+${g_TLDID}
+        cachefile+=+${g_VERBOSE}
+        cachefile+=+${1}
+        effective_format=sig
+    else
+        core:raise EXCEPTION_BAD_FN_CALL
     fi
+
+    cachefile+=.${effective_format}
 
     echo "${cachefile}"
 
-    e=${CODE_SUCCESS}
-    return $e
-}
-
-function :core:cache:age() {
     local -i e=${CODE_FAILURE}
-
-    local cachefile=$(:core:cache:file "${@}")
-
-    :core:age "${cachefile}"
-    e=$?
-
-    return $e
-}
-
-function ::core:cache:cachetype() {
-    local -i e=${CODE_FAILURE}
-
-    if [ $# -eq 1 ]; then
-        local cachefile=$1
-        local cachetype=file
-
-        if [ "${cachefile:0:1}" == '/' ]; then
-            if [ "${cachefile//${SIMBOL_USER_CACHE}/}" != "${cachefile}" ]; then
-                cachetype=output
-            fi
-            e=${CODE_SUCCESS}
-        else
-            core:raise EXCEPTION_SHOULD_NOT_GET_HERE
-        fi
-    fi
-
-    echo "${cachetype}"
+    [ ! -e "${cachefile}" ] || e=${CODE_SUCCESS?}
     return $e
 }
 
 function :core:cache() {
-    local -i e=${CODE_FAILURE}
+    local -i e=${CODE_FAILURE?}
 
     if [ $# -eq 1 ]; then
-        local modfn=${FUNCNAME[1]}
-        local argv="$1"
-        local cachefile=$(:core:cache:file "${modfn}" "${argv}")
+        local cachefile="$1"
 
-        #. If it's a output-cached file..
-        case $(::core:cache:cachetype ${cachefile}) in
-            output)
-                :> ${cachefile}
-                chmod 600 ${cachefile}
-                while IFS= read line; do
-                    echo "${line}" >> ${cachefile}
-                done
+        :> ${cachefile}
+        chmod 600 ${cachefile}
+        tee -a ${cachefile}
 
-                if [ -s ${cachefile} ]; then
-                    cat ${cachefile}
-                else
-                    rm -f ${cachefile}
-                fi
-            ;;
-            file)
-                : PASS
-            ;;
-        esac
-
-        local -i e=${CODE_SUCCESS}
+        e=${CODE_SUCCESS?}
     else
         core:raise EXCEPTION_BAD_FN_CALL
     fi
@@ -641,43 +703,40 @@ function :core:cache() {
 }
 
 function :core:cached() {
-    #. TTL of 0 means cache forever
-    #. TTL > 0 means to cache for TTL seconds
-    local -i e=${CODE_FAILURE}
-    if [ $# -eq 1 ]; then
-        if [ ${g_CACHED} -eq 1 ]; then
-            local modfn=${FUNCNAME[1]}
-            if [ "$(type -t ${modfn}:shflags)" != "function" ]; then
-                local -i ttl=0
-                [ "$(type -t ${modfn}:cached)" == "function" ] &&
-                    ttl=$(${modfn}:cached) ||
-                        ttl=${g_CACHE_TTL}
-                local argv="$1"
-                local cachefile=$(:core:cache:file "${modfn}" "${argv}")
+    : ${g_CACHED?}
+    : ${g_CACHE_USED?}
+    local -i e=${CODE_FAILURE?}
+
+    if [ ${g_CACHED} -eq 1 ]; then
+        #. TTL < 0 means don't cache
+        #. TTL of 0 means cache forever
+        #. TTL > 0 means to cache for TTL seconds
+
+        if [ $# -eq 1 ]; then
+            local cachefile="$1"
+            local -i ttl=${l_CACHE_TTL:-${g_CACHE_TTL?}}
+            if [ ${ttl} -ge 0 ]; then
                 local -i age
                 age=$(:core:age ${cachefile})
-                if [ $? -eq ${CODE_SUCCESS} ]; then
+                if [ $? -eq ${CODE_SUCCESS?} ]; then
                     if [ ${ttl} -gt 0 -a ${age} -ge ${ttl} ]; then
+                        #. Cache Miss (Expiry)
                         rm -f ${cachefile}
+                        e=${CODE_FAILURE?}
                     else
-                        case $(::core:cache:cachetype ${cachefile}) in
-                            output)
-                                cat ${cachefile}
-                                echo ${cachefile} >> ${g_CACHE_USED}
-                                e=${CODE_SUCCESS}
-                            ;;
-                            file)
-                                e=${CODE_SUCCESS}
-                            ;;
-                        esac
+                        #. Cache Hit
+                        echo ${cachefile} >> ${g_CACHE_USED?}
+                        #cat ${cachefile}
+                        e=${CODE_SUCCESS?}
                     fi
+                else
+                    #. Cache Miss (No Cache)
+                    e=${CODE_FAILURE?}
                 fi
-            else
-                theme ERR "Caching functions that take local shflags not supported." >&2
             fi
+        else
+            core:raise EXCEPTION_BAD_FN_CALL
         fi
-    else
-        core:raise EXCEPTION_BAD_FN_CALL
     fi
 
     return $e
@@ -776,8 +835,8 @@ function ::core:flags.eval() {
             fi
         fi
         cat <<!
-declare -g module=${module:-}
-declare -g fn=${fn:-}
+declare -g module_22884db148f0ffb0d830ba431102b0b5=${module:-}
+declare -g fn_4d9d6c17eeae2754c9b49171261b93bd=${fn:-}
 !
     fi
 
@@ -927,7 +986,6 @@ function ::core:dereference.eval() {
 
 function :core:functions() {
     local -i e=${CODE_FAILURE}
-
     if [ $# -eq 2 ]; then
         local fn_type=$1
         local module=$2
@@ -963,7 +1021,11 @@ function :core:functions() {
 }
 function :core:usage:cached() { echo 0; }
 function :core:usage() {
-  ${CACHE_OUT?}; {
+#. FIXME: The caching here is unaware of -O|--options that are eaten up by
+#. FIXME: shflags before this function is called, and so caching becomes
+#. FIXME: destructive.  Additionally, it breaks the --long help which never
+#. FIXME: displays anymore once this is enabled.
+# g_CACHE_OUT "$*" || {
     local module=$1
     local fn=$2
     local mode=${3---short}
@@ -1012,7 +1074,7 @@ function :core:usage() {
                 if [ $ie -eq ${CODE_IMPORT_GOOOD?} ]; then
                     cpf "%{@comment:%s}\n" "${docstring:+; ${docstring}}"
                 else
-                    cpf "; %{@warn:This module has not been set-up for use}\n"
+                    cpf "; %{@err:Error loading module}\n"
                 fi
             ); done | sort
         done
@@ -1024,16 +1086,22 @@ function :core:usage() {
                 cpf "${usage_prefix} %{!module:${module}}\n"
                 g_ONCE_WHOAMI=1
             fi
-
-            local -a fns=( $(:core:functions public ${module}) )
-            for fn in ${fns[@]}; do
-                local usage_fn="${module}:${fn}:usage"
-                local usagestr="{no-args}"
-                if [ "$(type -t ${usage_fn})" == "function" ]; then
-                    usagestr="$(${usage_fn})"
-                    cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} %{c:%s}\n" "${usagestr}"
-                else
-                    cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} %{bl:%s}\n" "${usagestr}"
+            for module in $(core:modules ${module}); do
+                core:softimport ${module}
+                if [ $? -eq ${CODE_SUCCESS?} ]; then
+                    local -a fns=( $(:core:functions public ${module}) )
+                    for fn in ${fns[@]}; do
+                        local usage_fn="${module}:${fn}:usage"
+                        local usagestr
+                        if [ "$(type -t ${usage_fn})" == "function" ]; then
+                            while read usagestr; do
+                                cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} %{c:%s}\n" "${usagestr}"
+                            done < <(${usage_fn})
+                        else
+                            usagestr="{no-args}"
+                            cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} %{bl:%s}\n" "${usagestr}"
+                        fi
+                    done
                 fi
             done
 
@@ -1052,13 +1120,14 @@ function :core:usage() {
         fi
     elif [ $# -ge 2 ]; then
         cpf "${usage_prefix} %{!function:${module}:${fn}}\n"
-        cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} "
 
-        local usage_s=${module}:${fn}:usage
-        if [ "$(type -t $usage_s)" == "function" ]; then
-            cpf "%{c:%s}\n" "$(${usage_s})"
+        local usage_fn=${module}:${fn}:usage
+        if [ "$(type -t $usage_fn)" == "function" ]; then
+            while read usagestr; do
+                cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} %{c:%s}\n" "${usagestr}"
+            done < <(${usage_fn})
         else
-            cpf "%{bl:%s}\n" "{no-args}"
+            cpf "    %{bl:${SIMBOL_BASENAME}} %{!function:${module}:${fn}} %{bl:%s}\n" "{no-args}"
         fi
 
         case ${mode} in
@@ -1084,26 +1153,27 @@ function :core:usage() {
             ;;
         esac
     fi
-  } | ${CACHE_IN?}; ${CACHE_EXIT?}
+# } > ${g_CACHE_FILE?}; g_CACHE_IN; return $?
 }
 
 function :core:complete() {
-    local module=$1
+    local modulestr=$1
+    local prefix="AC_${modulestr//./_}_"
     local fn=$2
     if [ "${fn}" != '-' ]; then
         local hit
-        hit=$(declare -F ${module}:${fn})
+        hit=$(declare -F ${modulestr}:${fn})
         if [ $? -eq 0 ]; then
             echo ${fn}
         else
-            for afn in $(declare -F|awk -F'[ :]' '$3~/^'${module}'$/{print$4}'|sort -n); do
-                local AC_${module//./_}_${afn}=1
+            for afn in $(declare -F|awk -F'[ :]' '$3~/^'${modulestr}'$/{print$4}'|sort -n); do
+                local ${prefix}${afn//./_}=1
             done
-            local -a completed=( $(eval echo "\${!AC_${module//./_}_${fn}*}") )
-            if echo ${completed[@]} | grep -qE "\<AC_${module//./_}_${fn}\>"; then
+            local -a completed=( $(eval echo "\${!${prefix}${fn//./_}*}") )
+            if echo ${completed[@]} | grep -qE "\<${prefix}${fn//./_}\>"; then
                 echo ${fn}
             else
-                echo ${completed[@]//AC_${module//./_}_/}
+                echo ${completed[@]//${prefix}/}
             fi
         fi
     fi
@@ -1122,9 +1192,15 @@ function core:wrapper() {
     local -i e_flags=$?
     core:log DEBUG "core:flags.eval() returned ${e_flags}"
 
-    eval "${setdata}" #. NOTE: This sets module, fn, $@, etc.
-    : ${module?}
-    : ${fn?}
+    eval "${setdata}" #. -={
+    #. NOTE: This sets module, fn, $@, etc.
+    : ${module_22884db148f0ffb0d830ba431102b0b5?}
+    module=${module_22884db148f0ffb0d830ba431102b0b5}
+
+    : ${fn_4d9d6c17eeae2754c9b49171261b93bd?}
+    fn=${fn_4d9d6c17eeae2754c9b49171261b93bd}
+    #. }=-
+
     core:log DEBUG "core:wrapper(module=${module}, fn=${fn}, argv=( $@ ))"
 
     local regex=':+[a-z0-9]+(:[a-z0-9]+) |*'
